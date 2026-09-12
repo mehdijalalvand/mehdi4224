@@ -2,7 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPExcept
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import sqlite3
 import secrets
 import string
@@ -112,7 +112,7 @@ async def add_driver(req: Request):
 
     conn.execute(
         "INSERT INTO drivers (name, phone, token, created_at) VALUES (?, ?, ?, ?)",
-        (name, phone, token, datetime.now().isoformat()),
+        (name, phone, token, datetime.now(timezone.utc).isoformat()),
     )
     conn.commit()
     conn.close()
@@ -156,7 +156,7 @@ async def update_location(token: str, req: Request):
         conn.close()
         raise HTTPException(400, "lat/lng required")
 
-    ts = datetime.now().isoformat()
+    ts = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO locations (token, lat, lng, acc, speed, ts) VALUES (?, ?, ?, ?, ?, ?)",
         (token, lat, lng, acc, speed, ts),
