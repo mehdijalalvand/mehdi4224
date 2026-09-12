@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 import sqlite3
 import secrets
 import string
+import asyncio
+import urllib.request
+import urllib.parse
+import json
 
 app = FastAPI()
 
@@ -15,11 +19,10 @@ DB_PATH = BASE / "peyk.db"
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
-# ============ اتصال‌های زنده‌ی داشبورد ============
 dashboards: set[WebSocket] = set()
+_address_cache = {}
 
 
-# ============ دیتابیس ============
 def db_connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -58,7 +61,54 @@ def gen_token(length=8):
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
-# ============ صفحات ============
+def now_utc():
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ============ Reverse Geocoding ============
+def _fetch_address_sync(lat, lng):
+    try:
+        params = urllib.parse.urlencode({
+            "format": "json",
+            "lat": lat,
+            "lon": lng,
+            "accept-language": "fa",
+            "zoom": 18,
+        })
+        url = "https://nominatim.openstreetmap.org/reverse?" + params
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "DeliveryTracker/1.0"
+        })
+        with urllib.request.urlopen(req, timeout=6) as res:
+            data = json.loads(res.read().decode("utf-8"))
+            return data.get("display_name", "") or ""
+    except Exception:
+        return ""
+
+
+async def get_address(lat, lng):
+    lat_r = round(lat, 4)
+    lng_r = round(lng, 4)
+    key = (lat_r, lng_r)
+    now_ts = datetime.now().timestamp()
+
+    if key in _address_cache:
+        addr, cached_at = _address_cache[key]
+        if now_ts - cached_at < 86400:
+            return addr
+
+    addr = await asyncio.to_thread(_fetch_address_sync, lat, lng)
+    _address_cache[key] = (addr, now_ts)
+    return addr
+
+
+@app.get("/api/address")
+async def address_endpoint(lat: float, lng: float):
+    addr = await get_address(lat, lng)
+    return {"address": addr}
+
+
+# ============ Pages ============
 @app.get("/")
 async def dashboard_page():
     return HTMLResponse((STATIC / "dashboard.html").read_text(encoding="utf-8"))
@@ -94,7 +144,7 @@ async def service_worker():
     )
 
 
-# ============ API پیک‌ها ============
+# ============ Drivers API ============
 @app.post("/api/drivers")
 async def add_driver(req: Request):
     data = await req.json()
@@ -106,13 +156,12 @@ async def add_driver(req: Request):
 
     token = gen_token()
     conn = db_connect()
-    # اطمینان از یکتا بودن
     while conn.execute("SELECT 1 FROM drivers WHERE token = ?", (token,)).fetchone():
         token = gen_token()
 
     conn.execute(
         "INSERT INTO drivers (name, phone, token, created_at) VALUES (?, ?, ?, ?)",
-        (name, phone, token, datetime.now(timezone.utc).isoformat()),
+        (name, phone, token, now_utc()),
     )
     conn.commit()
     conn.close()
@@ -137,7 +186,7 @@ async def delete_driver(token: str):
     return {"ok": True}
 
 
-# ============ دریافت موقعیت ============
+# ============ Location ============
 @app.post("/api/location/{token}")
 async def update_location(token: str, req: Request):
     conn = db_connect()
@@ -156,14 +205,13 @@ async def update_location(token: str, req: Request):
         conn.close()
         raise HTTPException(400, "lat/lng required")
 
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = now_utc()
     conn.execute(
         "INSERT INTO locations (token, lat, lng, acc, speed, ts) VALUES (?, ?, ?, ?, ?, ?)",
         (token, lat, lng, acc, speed, ts),
     )
     conn.commit()
 
-    # آخرین موقعیت
     last = conn.execute(
         "SELECT lat, lng, acc, speed, ts FROM locations WHERE token = ? ORDER BY id DESC LIMIT 1",
         (token,),
@@ -177,11 +225,9 @@ async def update_location(token: str, req: Request):
         "lng": last["lng"],
         "acc": last["acc"],
         "speed": last["speed"],
-        "time": datetime.fromisoformat(last["ts"]).strftime("%H:%M:%S"),
         "ts": last["ts"],
     }
 
-    # ارسال زنده به داشبوردها
     dead = []
     for ws in dashboards:
         try:
@@ -196,7 +242,6 @@ async def update_location(token: str, req: Request):
 
 @app.get("/api/positions")
 async def get_all_positions():
-    """آخرین موقعیت همه‌ی پیک‌ها"""
     conn = db_connect()
     rows = conn.execute("""
         SELECT d.token, d.name, d.phone,
@@ -219,7 +264,6 @@ async def get_all_positions():
             "lng": r["lng"],
             "acc": r["acc"],
             "speed": r["speed"],
-            "time": datetime.fromisoformat(r["ts"]).strftime("%H:%M:%S") if r["ts"] else None,
             "ts": r["ts"],
         })
     return result
@@ -231,7 +275,6 @@ async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     dashboards.add(ws)
     try:
-        # ارسال موقعیت اولیه‌ی همه‌ی پیک‌ها
         positions = await get_all_positions()
         for p in positions:
             if p["lat"] is not None:
