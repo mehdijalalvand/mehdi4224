@@ -27,25 +27,15 @@
     background: #1976d2;
     color: #fff;
   }
-  .sidebar-header h2 {
-    margin: 0 0 4px;
-    font-size: 18px;
-  }
-  .sidebar-header .sub {
-    font-size: 12px;
-    opacity: .85;
-  }
+  .sidebar-header h2 { margin: 0 0 4px; font-size: 18px; }
+  .sidebar-header .sub { font-size: 12px; opacity: .85; }
 
   .add-form {
     padding: 16px 20px;
     border-bottom: 1px solid #eee;
     background: #f8fafc;
   }
-  .add-form h3 {
-    margin: 0 0 12px;
-    font-size: 14px;
-    color: #444;
-  }
+  .add-form h3 { margin: 0 0 12px; font-size: 14px; color: #444; }
   .add-form input {
     width: 100%;
     padding: 10px 12px;
@@ -87,15 +77,24 @@
     margin-bottom: 10px;
     box-shadow: 0 1px 4px rgba(0,0,0,.08);
     border-right: 4px solid #cbd5e1;
-    transition: border-color .2s;
+    transition: border-color .2s, transform .15s, box-shadow .15s;
+    cursor: pointer;
+  }
+  .driver-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,.12);
   }
   .driver-card.online { border-right-color: #22c55e; }
+  .driver-card.selected {
+    border-right-color: #f59e0b;
+    background: #fffbeb;
+  }
 
   .driver-card .top {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
   .driver-card .name {
     font-weight: bold;
@@ -106,6 +105,7 @@
     width: 10px; height: 10px;
     border-radius: 50%;
     background: #cbd5e1;
+    flex-shrink: 0;
   }
   .driver-card.online .status-dot {
     background: #22c55e;
@@ -114,10 +114,29 @@
   .driver-card .phone {
     font-size: 13px;
     color: #64748b;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     direction: ltr;
     text-align: right;
   }
+  .driver-card .address {
+    font-size: 12px;
+    color: #475569;
+    background: #f1f5f9;
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    line-height: 1.7;
+    min-height: 20px;
+    word-break: break-word;
+  }
+  .driver-card .address.loading {
+    color: #94a3b8;
+    font-style: italic;
+  }
+  .driver-card .address .icon {
+    margin-left: 4px;
+  }
+
   .driver-card .info {
     font-size: 12px;
     color: #64748b;
@@ -125,6 +144,7 @@
     margin-bottom: 10px;
   }
   .driver-card .info .val { color: #1976d2; font-weight: bold; }
+
   .driver-card .buttons {
     display: flex;
     gap: 6px;
@@ -169,6 +189,30 @@
   .toast.show { transform: translateX(-50%) translateY(0); }
 
   .leaflet-popup-content { font-family: Tahoma, sans-serif; direction: rtl; }
+
+  /* مارکر رنگی برای هر پیک */
+  .driver-marker {
+    background: #1976d2;
+    color: #fff;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    font-weight: bold;
+  }
+  .driver-marker.online {
+    background: #22c55e;
+    animation: markerPulse 1.5s infinite;
+  }
+  @keyframes markerPulse {
+    0%, 100% { box-shadow: 0 2px 8px rgba(0,0,0,.4), 0 0 0 0 rgba(34,197,94,.6); }
+    50%      { box-shadow: 0 2px 8px rgba(0,0,0,.4), 0 0 0 12px rgba(34,197,94,0); }
+  }
 </style>
 </head>
 <body>
@@ -178,7 +222,7 @@
 <div class="sidebar">
   <div class="sidebar-header">
     <h2>🛵 پنل ردیابی پیک</h2>
-    <div class="sub">موقعیت زنده‌ی پیک‌ها روی نقشه</div>
+    <div class="sub">روی هر پیک کلیک کن تا نقشه بره سراغش</div>
   </div>
 
   <div class="add-form">
@@ -201,15 +245,17 @@
   const driversList = $('driversList');
   const toast = $('toast');
 
-  // نقشه
   const map = L.map('map').setView([35.6892, 51.3890], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '© OpenStreetMap'
   }).addTo(map);
 
-  // مارکرها: { token: { marker, circle, data } }
   const markers = {};
+  const addresses = {};      // { token: "آدرس یا در حال بارگذاری" }
+  let allDrivers = [];
+  let selectedToken = null;
+  let firstLoad = true;
 
   function showToast(msg) {
     toast.textContent = msg;
@@ -220,7 +266,7 @@
   function timeAgo(ts) {
     if (!ts) return 'هرگز';
     const diff = (Date.now() - new Date(ts).getTime()) / 1000;
-    if (diff < 10) return 'همین الان';
+    if (diff < 15) return 'همین الان';
     if (diff < 60) return Math.floor(diff) + ' ثانیه پیش';
     if (diff < 3600) return Math.floor(diff / 60) + ' دقیقه پیش';
     if (diff < 86400) return Math.floor(diff / 3600) + ' ساعت پیش';
@@ -229,41 +275,7 @@
 
   function isOnline(ts) {
     if (!ts) return false;
-    return (Date.now() - new Date(ts).getTime()) < 30000; // ۳۰ ثانیه
-  }
-
-  // ===== رندر لیست =====
-  let allDrivers = [];
-
-  function renderList() {
-    if (allDrivers.length === 0) {
-      driversList.innerHTML = '<div class="empty">هنوز پیکی اضافه نشده</div>';
-      return;
-    }
-
-    driversList.innerHTML = allDrivers.map(d => {
-      const online = isOnline(d.ts);
-      const link = window.location.origin + '/driver/' + d.token;
-      return `
-        <div class="driver-card ${online ? 'online' : ''}" data-token="${d.token}">
-          <div class="top">
-            <div class="name">${escapeHtml(d.name)}</div>
-            <div class="status-dot"></div>
-          </div>
-          <div class="phone">${escapeHtml(d.phone)}</div>
-          <div class="info">
-            ${online ? `📍 <span class="val">${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}</span>` : '⚪ آفلاین'}
-            <br>
-            🕐 آخرین بروزرسانی: <span class="val">${timeAgo(d.ts)}</span>
-          </div>
-          <div class="buttons">
-            <button class="btn-copy" onclick="copyLink('${link}')">🔗 کپی لینک</button>
-            <button class="btn-wa" onclick="sendWhatsApp('${d.phone}', '${escapeJs(d.name)}', '${link}')">📱 واتساپ</button>
-            <button class="btn-del" onclick="deleteDriver('${d.token}')">🗑 حذف</button>
-          </div>
-        </div>
-      `;
-    }).join('');
+    return (Date.now() - new Date(ts).getTime()) < 30000;
   }
 
   function escapeHtml(s) {
@@ -273,19 +285,136 @@
     return String(s ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   }
 
-  // ===== لود لیست پیک‌ها =====
+  // ====== گرفتن آدرس ======
+  async function fetchAddress(token, lat, lng) {
+    // اگه قبلاً گرفته شده، دوباره نگیر
+    if (addresses[token] && addresses[token] !== '__loading__') return;
+
+    addresses[token] = '__loading__';
+    renderList();
+
+    try {
+      const res = await fetch(`/api/address?lat=${lat}&lng=${lng}`);
+      const data = await res.json();
+      addresses[token] = data.address || 'آدرس پیدا نشد';
+    } catch (e) {
+      addresses[token] = 'خطا در دریافت آدرس';
+    }
+    renderList();
+    // آپدیت پاپ‌آپ مارکر
+    if (markers[token]) {
+      const d = allDrivers.find(x => x.token === token);
+      if (d) markers[token].marker.setPopupContent(popupHtml(d));
+    }
+  }
+
+  // ====== رندر لیست ======
+  function renderList() {
+    if (allDrivers.length === 0) {
+      driversList.innerHTML = '<div class="empty">هنوز پیکی اضافه نشده</div>';
+      return;
+    }
+
+    driversList.innerHTML = allDrivers.map(d => {
+      const online = isOnline(d.ts);
+      const link = window.location.origin + '/driver/' + d.token;
+      const addr = addresses[d.token];
+      const selected = selectedToken === d.token;
+
+      let addrHtml = '';
+      if (online && d.lat != null) {
+        if (!addr) {
+          addrHtml = '<div class="address loading">📡 در حال دریافت آدرس...</div>';
+          // شروع دریافت
+          setTimeout(() => fetchAddress(d.token, d.lat, d.lng), 0);
+        } else if (addr === '__loading__') {
+          addrHtml = '<div class="address loading">📡 در حال دریافت آدرس...</div>';
+        } else {
+          addrHtml = `<div class="address"><span class="icon">📍</span>${escapeHtml(addr)}</div>`;
+        }
+      } else if (d.lat != null) {
+        // آفلاین ولی موقعیت داره
+        if (addr && addr !== '__loading__') {
+          addrHtml = `<div class="address"><span class="icon">📍</span>${escapeHtml(addr)}</div>`;
+        }
+      }
+
+      return `
+        <div class="driver-card ${online ? 'online' : ''} ${selected ? 'selected' : ''}"
+             data-token="${d.token}"
+             onclick="focusDriver('${d.token}', event)">
+          <div class="top">
+            <div class="name">${escapeHtml(d.name)}</div>
+            <div class="status-dot"></div>
+          </div>
+          <div class="phone">${escapeHtml(d.phone)}</div>
+          ${addrHtml}
+          <div class="info">
+            ${online && d.lat != null
+              ? `📌 <span class="val">${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}</span>`
+              : '⚪ آفلاین'}
+            <br>
+            🕐 آخرین بروزرسانی: <span class="val">${timeAgo(d.ts)}</span>
+          </div>
+          <div class="buttons">
+            <button class="btn-copy" onclick="copyLink(event, '${link}')">🔗 کپی لینک</button>
+            <button class="btn-wa" onclick="sendWhatsApp(event, '${d.phone}', '${escapeJs(d.name)}', '${link}')">📱 واتساپ</button>
+            <button class="btn-del" onclick="deleteDriver(event, '${d.token}')">🗑 حذف</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ====== تمرکز روی پیک ======
+  window.focusDriver = (token, event) => {
+    // اگه روی دکمه کلیک شده، نپر
+    if (event && event.target.closest('button')) return;
+
+    selectedToken = token;
+    renderList();
+
+    const d = allDrivers.find(x => x.token === token);
+    if (!d || d.lat == null) {
+      showToast('این پیک هنوز موقعیت نفرستاده');
+      return;
+    }
+
+    map.flyTo([d.lat, d.lng], 16, { duration: 1 });
+
+    if (markers[token]) {
+      setTimeout(() => markers[token].marker.openPopup(), 1100);
+    }
+  };
+
+  function popupHtml(d) {
+    const addr = addresses[d.token];
+    const addrText = (addr && addr !== '__loading__') ? `<br><span style="color:#666;font-size:12px;">📍 ${escapeHtml(addr)}</span>` : '';
+    return `<b>${escapeHtml(d.name)}</b><br>${escapeHtml(d.phone)}${addrText}`;
+  }
+
+  // ====== لود لیست ======
   async function loadDrivers() {
     try {
       const res = await fetch('/api/positions');
       allDrivers = await res.json();
       renderList();
       updateMarkers();
+
+      // بار اول: بذار نقشه روی اولین پیک آنلاین فوکوس کنه
+      if (firstLoad) {
+        const firstOnline = allDrivers.find(d => d.lat != null && isOnline(d.ts));
+        if (firstOnline) {
+          map.setView([firstOnline.lat, firstOnline.lng], 15);
+        }
+        firstLoad = false;
+      }
     } catch (e) {
       console.error(e);
     }
   }
 
-  // ===== به‌روزرسانی مارکرها روی نقشه =====
+  // ====== مارکرها ======
   function updateMarkers() {
     const seen = new Set();
 
@@ -293,10 +422,17 @@
       if (d.lat == null || d.lng == null) return;
       seen.add(d.token);
       const pos = [d.lat, d.lng];
+      const online = isOnline(d.ts);
 
       if (!markers[d.token]) {
-        const marker = L.marker(pos).addTo(map);
-        marker.bindPopup(`<b>${escapeHtml(d.name)}</b><br>${escapeHtml(d.phone)}`);
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="driver-marker ${online ? 'online' : ''}" id="marker-${d.token}">🛵</div>`,
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
+        });
+        const marker = L.marker(pos, { icon }).addTo(map);
+        marker.bindPopup(popupHtml(d));
         const circle = L.circle(pos, {
           radius: d.acc || 20,
           color: '#1976d2',
@@ -305,12 +441,18 @@
         markers[d.token] = { marker, circle };
       } else {
         markers[d.token].marker.setLatLng(pos);
-        markers[d.token].marker.setPopupContent(`<b>${escapeHtml(d.name)}</b><br>${escapeHtml(d.phone)}`);
+        markers[d.token].marker.setPopupContent(popupHtml(d));
         markers[d.token].circle.setLatLng(pos).setRadius(d.acc || 20);
+
+        // آپدیت کلاس آنلاین روی آیکون
+        const iconEl = document.getElementById('marker-' + d.token);
+        if (iconEl) {
+          iconEl.classList.toggle('online', online);
+        }
       }
     });
 
-    // حذف مارکرهایی که دیگه پیکشون نیست
+    // حذف مارکرهای حذف‌شده
     Object.keys(markers).forEach(token => {
       if (!seen.has(token)) {
         markers[token].marker.remove();
@@ -320,15 +462,11 @@
     });
   }
 
-  // ===== افزودن پیک =====
+  // ====== افزودن پیک ======
   $('addBtn').onclick = async () => {
     const name = $('newName').value.trim();
     const phone = $('newPhone').value.trim();
-
-    if (!name || !phone) {
-      showToast('اسم و شماره رو وارد کن');
-      return;
-    }
+    if (!name || !phone) { showToast('اسم و شماره رو وارد کن'); return; }
 
     $('addBtn').disabled = true;
     try {
@@ -341,14 +479,14 @@
       const data = await res.json();
       $('newName').value = '';
       $('newPhone').value = '';
-      showToast('✅ پیک اضافه شد');
       await loadDrivers();
 
       const link = window.location.origin + '/driver/' + data.token;
       navigator.clipboard.writeText(link).then(() => {
         showToast('✅ پیک اضافه شد - لینک کپی شد');
-      }).catch(() => {});
-
+      }).catch(() => {
+        showToast('✅ پیک اضافه شد');
+      });
     } catch (e) {
       showToast('❌ خطا در افزودن');
     } finally {
@@ -356,8 +494,9 @@
     }
   };
 
-  // ===== کپی لینک =====
-  window.copyLink = (link) => {
+  // ====== کپی ======
+  window.copyLink = (event, link) => {
+    event.stopPropagation();
     navigator.clipboard.writeText(link).then(() => {
       showToast('✅ لینک کپی شد');
     }).catch(() => {
@@ -365,8 +504,9 @@
     });
   };
 
-  // ===== ارسال واتساپ =====
-  window.sendWhatsApp = (phone, name, link) => {
+  // ====== واتساپ ======
+  window.sendWhatsApp = (event, phone, name, link) => {
+    event.stopPropagation();
     let p = phone.replace(/[^0-9]/g, '');
     if (p.startsWith('0')) p = '98' + p.slice(1);
     const text = encodeURIComponent(
@@ -377,24 +517,27 @@
     window.open('https://wa.me/' + p + '?text=' + text, '_blank');
   };
 
-  // ===== حذف پیک =====
-  window.deleteDriver = async (token) => {
+  // ====== حذف ======
+  window.deleteDriver = async (event, token) => {
+    event.stopPropagation();
     if (!confirm('مطمئنی می‌خوای این پیک رو حذف کنی؟')) return;
     try {
       await fetch('/api/drivers/' + token, { method: 'DELETE' });
       showToast('🗑 حذف شد');
+      delete addresses[token];
       if (markers[token]) {
         markers[token].marker.remove();
         markers[token].circle.remove();
         delete markers[token];
       }
+      if (selectedToken === token) selectedToken = null;
       await loadDrivers();
     } catch (e) {
       showToast('❌ خطا در حذف');
     }
   };
 
-  // ===== WebSocket: دریافت زنده =====
+  // ====== WebSocket ======
   function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(proto + '://' + location.host + '/ws');
@@ -402,9 +545,13 @@
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        // آپدیت پیک مربوطه
         const idx = allDrivers.findIndex(d => d.token === data.token);
         if (idx >= 0) {
+          // اگه موقعیت تغییر کرده، کش آدرس رو پاک کن
+          const old = allDrivers[idx];
+          if (old.lat !== data.lat || old.lng !== data.lng) {
+            delete addresses[data.token];
+          }
           allDrivers[idx] = { ...allDrivers[idx], ...data };
         } else {
           allDrivers.unshift(data);
@@ -417,14 +564,11 @@
     ws.onclose = () => setTimeout(connectWS, 2000);
   }
 
-  // ===== راه‌اندازی =====
+  // ====== راه‌اندازی ======
   loadDrivers();
   connectWS();
 
-  // هر ۱۵ ثانیه یه بار رفرش کن (برای حالت آفلاین/آنلاین)
-  setInterval(() => {
-    renderList();
-  }, 15000);
+  setInterval(() => { renderList(); }, 10000);
 </script>
 </body>
 </html>
