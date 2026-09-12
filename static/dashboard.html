@@ -6,125 +6,425 @@
 <title>پنل ردیابی پیک</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
+  * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; font-family: Tahoma, sans-serif; }
-  #map { position: absolute; inset: 0; }
-  .panel {
+  #map { position: absolute; inset: 0; z-index: 1; }
+
+  .sidebar {
     position: absolute;
-    top: 16px; right: 16px;
-    background: rgba(255,255,255,.96);
-    padding: 18px 22px;
-    border-radius: 14px;
-    box-shadow: 0 4px 20px rgba(0,0,0,.2);
+    top: 0; right: 0; bottom: 0;
+    width: 380px;
+    background: #fff;
+    box-shadow: -2px 0 20px rgba(0,0,0,.15);
     z-index: 1000;
-    min-width: 260px;
-    font-size: 15px;
-    line-height: 2;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
-  .panel h3 { margin: 0 0 10px; font-size: 17px; color: #1976d2; }
-  .panel .row { display: flex; justify-content: space-between; gap: 16px; }
-  .panel .val { color: #1976d2; font-weight: bold; }
-  .panel .offline { color: #c62828; font-weight: bold; }
-  .panel .online  { color: #2e7d32; font-weight: bold; }
-  .footer {
-    position: absolute;
-    bottom: 12px; left: 12px;
-    background: rgba(0,0,0,.6);
+
+  .sidebar-header {
+    padding: 18px 20px;
+    background: #1976d2;
     color: #fff;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    z-index: 1000;
   }
+  .sidebar-header h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+  }
+  .sidebar-header .sub {
+    font-size: 12px;
+    opacity: .85;
+  }
+
+  .add-form {
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+    background: #f8fafc;
+  }
+  .add-form h3 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: #444;
+  }
+  .add-form input {
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .add-form input:focus { border-color: #1976d2; }
+  .add-form button {
+    width: 100%;
+    padding: 12px;
+    background: #1976d2;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .add-form button:hover { background: #1565c0; }
+  .add-form button:disabled { background: #94a3b8; cursor: not-allowed; }
+
+  .drivers-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    background: #f1f5f9;
+  }
+
+  .driver-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    border-right: 4px solid #cbd5e1;
+    transition: border-color .2s;
+  }
+  .driver-card.online { border-right-color: #22c55e; }
+
+  .driver-card .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .driver-card .name {
+    font-weight: bold;
+    font-size: 15px;
+    color: #1e293b;
+  }
+  .driver-card .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #cbd5e1;
+  }
+  .driver-card.online .status-dot {
+    background: #22c55e;
+    box-shadow: 0 0 8px #22c55e;
+  }
+  .driver-card .phone {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 8px;
+    direction: ltr;
+    text-align: right;
+  }
+  .driver-card .info {
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.8;
+    margin-bottom: 10px;
+  }
+  .driver-card .info .val { color: #1976d2; font-weight: bold; }
+  .driver-card .buttons {
+    display: flex;
+    gap: 6px;
+  }
+  .driver-card button {
+    flex: 1;
+    padding: 8px;
+    font-size: 12px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: bold;
+    transition: opacity .2s;
+  }
+  .driver-card button:hover { opacity: .85; }
+  .btn-copy  { background: #e0f2fe; color: #0369a1; }
+  .btn-wa    { background: #dcfce7; color: #15803d; }
+  .btn-del   { background: #fee2e2; color: #b91c1c; }
+
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #94a3b8;
+    font-size: 14px;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: #1e293b;
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    z-index: 2000;
+    transition: transform .3s;
+    box-shadow: 0 4px 20px rgba(0,0,0,.3);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  .leaflet-popup-content { font-family: Tahoma, sans-serif; direction: rtl; }
 </style>
 </head>
 <body>
 
-<div class="panel" id="panel">
-  <h3>🛵 ردیابی پیک</h3>
-  <div class="row"><span>وضعیت</span><span id="st" class="offline">در انتظار...</span></div>
-  <div class="row"><span>پیک</span><span id="name" class="val">-</span></div>
-  <div class="row"><span>عرض</span><span id="lat" class="val">-</span></div>
-  <div class="row"><span>طول</span><span id="lng" class="val">-</span></div>
-  <div class="row"><span>دقت</span><span id="acc" class="val">-</span></div>
-  <div class="row"><span>سرعت</span><span id="speed" class="val">-</span></div>
-  <div class="row"><span>آخرین بروزرسانی</span><span id="time" class="val">-</span></div>
+<div id="map"></div>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h2>🛵 پنل ردیابی پیک</h2>
+    <div class="sub">موقعیت زنده‌ی پیک‌ها روی نقشه</div>
+  </div>
+
+  <div class="add-form">
+    <h3>➕ افزودن پیک جدید</h3>
+    <input id="newName" placeholder="اسم پیک (مثلاً علی)" />
+    <input id="newPhone" placeholder="شماره موبایل (09xxxxxxxxx)" inputmode="numeric" />
+    <button id="addBtn">ساخت لینک اختصاصی</button>
+  </div>
+
+  <div class="drivers-list" id="driversList">
+    <div class="empty">هنوز پیکی اضافه نشده</div>
+  </div>
 </div>
 
-<div id="map"></div>
-<div class="footer">Delivery Tracker v1.0</div>
+<div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  // نقشه — پیش‌فرض تهران
-  const map = L.map('map').setView([35.6892, 51.3890], 13);
+  const $ = (id) => document.getElementById(id);
+  const driversList = $('driversList');
+  const toast = $('toast');
+
+  // نقشه
+  const map = L.map('map').setView([35.6892, 51.3890], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '© OpenStreetMap'
   }).addTo(map);
 
-  let marker = null;
-  let circle = null;
-  let firstFix = true;
+  // مارکرها: { token: { marker, circle, data } }
+  const markers = {};
 
-  const el = {
-    st:    document.getElementById('st'),
-    name:  document.getElementById('name'),
-    lat:   document.getElementById('lat'),
-    lng:   document.getElementById('lng'),
-    acc:   document.getElementById('acc'),
-    speed: document.getElementById('speed'),
-    time:  document.getElementById('time'),
-  };
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+  }
 
-  function update(data) {
-    if (data.lat == null || data.lng == null) return;
+  function timeAgo(ts) {
+    if (!ts) return 'هرگز';
+    const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+    if (diff < 10) return 'همین الان';
+    if (diff < 60) return Math.floor(diff) + ' ثانیه پیش';
+    if (diff < 3600) return Math.floor(diff / 60) + ' دقیقه پیش';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' ساعت پیش';
+    return Math.floor(diff / 86400) + ' روز پیش';
+  }
 
-    el.st.textContent = 'آنلاین';
-    el.st.className = 'online';
-    el.name.textContent  = data.driver || '-';
-    el.lat.textContent   = data.lat.toFixed(6);
-    el.lng.textContent   = data.lng.toFixed(6);
-    el.acc.textContent   = (data.acc ?? '-') + ' متر';
-    el.speed.textContent = data.speed != null ? data.speed + ' km/h' : '-';
-    el.time.textContent  = data.time || '-';
+  function isOnline(ts) {
+    if (!ts) return false;
+    return (Date.now() - new Date(ts).getTime()) < 30000; // ۳۰ ثانیه
+  }
 
-    const pos = [data.lat, data.lng];
+  // ===== رندر لیست =====
+  let allDrivers = [];
 
-    if (!marker) {
-      marker = L.marker(pos).addTo(map).bindPopup('پیک اینجاست');
-      circle = L.circle(pos, {
-        radius: data.acc || 20,
-        color: '#1976d2',
-        fillOpacity: 0.15
-      }).addTo(map);
-    } else {
-      marker.setLatLng(pos);
-      circle.setLatLng(pos).setRadius(data.acc || 20);
+  function renderList() {
+    if (allDrivers.length === 0) {
+      driversList.innerHTML = '<div class="empty">هنوز پیکی اضافه نشده</div>';
+      return;
     }
 
-    if (firstFix) {
-      map.setView(pos, 16);
-      firstFix = false;
-    } else {
-      map.panTo(pos);
+    driversList.innerHTML = allDrivers.map(d => {
+      const online = isOnline(d.ts);
+      const link = window.location.origin + '/driver/' + d.token;
+      return `
+        <div class="driver-card ${online ? 'online' : ''}" data-token="${d.token}">
+          <div class="top">
+            <div class="name">${escapeHtml(d.name)}</div>
+            <div class="status-dot"></div>
+          </div>
+          <div class="phone">${escapeHtml(d.phone)}</div>
+          <div class="info">
+            ${online ? `📍 <span class="val">${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}</span>` : '⚪ آفلاین'}
+            <br>
+            🕐 آخرین بروزرسانی: <span class="val">${timeAgo(d.ts)}</span>
+          </div>
+          <div class="buttons">
+            <button class="btn-copy" onclick="copyLink('${link}')">🔗 کپی لینک</button>
+            <button class="btn-wa" onclick="sendWhatsApp('${d.phone}', '${escapeJs(d.name)}', '${link}')">📱 واتساپ</button>
+            <button class="btn-del" onclick="deleteDriver('${d.token}')">🗑 حذف</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function escapeJs(s) {
+    return String(s ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  }
+
+  // ===== لود لیست پیک‌ها =====
+  async function loadDrivers() {
+    try {
+      const res = await fetch('/api/positions');
+      allDrivers = await res.json();
+      renderList();
+      updateMarkers();
+    } catch (e) {
+      console.error(e);
     }
   }
 
-  // اتصال WebSocket برای دریافت زنده
-  function connect() {
+  // ===== به‌روزرسانی مارکرها روی نقشه =====
+  function updateMarkers() {
+    const seen = new Set();
+
+    allDrivers.forEach(d => {
+      if (d.lat == null || d.lng == null) return;
+      seen.add(d.token);
+      const pos = [d.lat, d.lng];
+
+      if (!markers[d.token]) {
+        const marker = L.marker(pos).addTo(map);
+        marker.bindPopup(`<b>${escapeHtml(d.name)}</b><br>${escapeHtml(d.phone)}`);
+        const circle = L.circle(pos, {
+          radius: d.acc || 20,
+          color: '#1976d2',
+          fillOpacity: 0.15
+        }).addTo(map);
+        markers[d.token] = { marker, circle };
+      } else {
+        markers[d.token].marker.setLatLng(pos);
+        markers[d.token].marker.setPopupContent(`<b>${escapeHtml(d.name)}</b><br>${escapeHtml(d.phone)}`);
+        markers[d.token].circle.setLatLng(pos).setRadius(d.acc || 20);
+      }
+    });
+
+    // حذف مارکرهایی که دیگه پیکشون نیست
+    Object.keys(markers).forEach(token => {
+      if (!seen.has(token)) {
+        markers[token].marker.remove();
+        markers[token].circle.remove();
+        delete markers[token];
+      }
+    });
+  }
+
+  // ===== افزودن پیک =====
+  $('addBtn').onclick = async () => {
+    const name = $('newName').value.trim();
+    const phone = $('newPhone').value.trim();
+
+    if (!name || !phone) {
+      showToast('اسم و شماره رو وارد کن');
+      return;
+    }
+
+    $('addBtn').disabled = true;
+    try {
+      const res = await fetch('/api/drivers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone }),
+      });
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      $('newName').value = '';
+      $('newPhone').value = '';
+      showToast('✅ پیک اضافه شد');
+      await loadDrivers();
+
+      const link = window.location.origin + '/driver/' + data.token;
+      navigator.clipboard.writeText(link).then(() => {
+        showToast('✅ پیک اضافه شد - لینک کپی شد');
+      }).catch(() => {});
+
+    } catch (e) {
+      showToast('❌ خطا در افزودن');
+    } finally {
+      $('addBtn').disabled = false;
+    }
+  };
+
+  // ===== کپی لینک =====
+  window.copyLink = (link) => {
+    navigator.clipboard.writeText(link).then(() => {
+      showToast('✅ لینک کپی شد');
+    }).catch(() => {
+      prompt('این لینک رو کپی کن:', link);
+    });
+  };
+
+  // ===== ارسال واتساپ =====
+  window.sendWhatsApp = (phone, name, link) => {
+    let p = phone.replace(/[^0-9]/g, '');
+    if (p.startsWith('0')) p = '98' + p.slice(1);
+    const text = encodeURIComponent(
+      `سلام ${name} جان 👋\n` +
+      `لینک ارسال موقعیتت اینه:\n${link}\n\n` +
+      `لطفاً بازش کن و دکمه‌ی «شروع ارسال» رو بزن تا فروشگاه موقعیتت رو ببینه.`
+    );
+    window.open('https://wa.me/' + p + '?text=' + text, '_blank');
+  };
+
+  // ===== حذف پیک =====
+  window.deleteDriver = async (token) => {
+    if (!confirm('مطمئنی می‌خوای این پیک رو حذف کنی؟')) return;
+    try {
+      await fetch('/api/drivers/' + token, { method: 'DELETE' });
+      showToast('🗑 حذف شد');
+      if (markers[token]) {
+        markers[token].marker.remove();
+        markers[token].circle.remove();
+        delete markers[token];
+      }
+      await loadDrivers();
+    } catch (e) {
+      showToast('❌ خطا در حذف');
+    }
+  };
+
+  // ===== WebSocket: دریافت زنده =====
+  function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(proto + '://' + location.host + '/ws');
 
     ws.onmessage = (e) => {
-      try { update(JSON.parse(e.data)); } catch(_) {}
+      try {
+        const data = JSON.parse(e.data);
+        // آپدیت پیک مربوطه
+        const idx = allDrivers.findIndex(d => d.token === data.token);
+        if (idx >= 0) {
+          allDrivers[idx] = { ...allDrivers[idx], ...data };
+        } else {
+          allDrivers.unshift(data);
+        }
+        renderList();
+        updateMarkers();
+      } catch(_) {}
     };
-    ws.onclose = () => {
-      el.st.textContent = 'قطع شد - تلاش مجدد...';
-      el.st.className = 'offline';
-      setTimeout(connect, 2000);
-    };
+
+    ws.onclose = () => setTimeout(connectWS, 2000);
   }
-  connect();
+
+  // ===== راه‌اندازی =====
+  loadDrivers();
+  connectWS();
+
+  // هر ۱۵ ثانیه یه بار رفرش کن (برای حالت آفلاین/آنلاین)
+  setInterval(() => {
+    renderList();
+  }, 15000);
 </script>
 </body>
 </html>
