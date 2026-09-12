@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1976d2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="پیک">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<title>ارسال موقعیت - پیک</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: Tahoma, system-ui, sans-serif;
+    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+    color: #e2e8f0;
+    padding: 24px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 100vh;
+  }
+  h1 {
+    font-size: 22px;
+    text-align: center;
+    margin: 8px 0 4px;
+    color: #fff;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 12px;
+  }
+  input {
+    width: 100%;
+    padding: 16px;
+    font-size: 17px;
+    border-radius: 14px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #fff;
+    text-align: center;
+    outline: none;
+    transition: border-color .2s;
+  }
+  input:focus { border-color: #1976d2; }
+
+  button {
+    width: 100%;
+    padding: 18px;
+    font-size: 18px;
+    font-weight: bold;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: transform .1s, opacity .2s;
+    color: #fff;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  #startBtn { background: linear-gradient(135deg, #22c55e, #16a34a); }
+  #stopBtn  { background: linear-gradient(135deg, #ef4444, #dc2626); }
+  #installBtn {
+    background: linear-gradient(135deg, #1976d2, #0d47a1);
+    display: none;
+  }
+
+  .status {
+    margin-top: auto;
+    padding: 20px;
+    border-radius: 16px;
+    background: #1e293b;
+    font-size: 15px;
+    line-height: 2;
+    border: 1px solid #334155;
+  }
+  .status .row { display: flex; justify-content: space-between; }
+  .status .val { color: #38bdf8; font-weight: bold; }
+
+  .dot {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #64748b;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .dot.on {
+    background: #22c55e;
+    box-shadow: 0 0 12px #22c55e;
+    animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .4; }
+  }
+
+  .badge {
+    text-align: center;
+    font-size: 12px;
+    color: #64748b;
+    padding-bottom: 12px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>📍 ارسال موقعیت پیک</h1>
+  <div class="subtitle">این صفحه رو باز بذار تا موقعیتت به فروشگاه برسه</div>
+
+  <input id="driverName" placeholder="اسمت رو بنویس (مثلاً علی)" autocomplete="off" />
+
+  <button id="startBtn">▶ شروع ارسال</button>
+  <button id="stopBtn" style="display:none">■ توقف</button>
+  <button id="installBtn">📲 نصب روی گوشی</button>
+
+  <div class="status" id="status">
+    <div class="row">
+      <span>وضعیت</span>
+      <span><span class="dot" id="dot"></span><span id="stateText">آماده</span></span>
+    </div>
+    <div class="row"><span>دقت</span><span class="val" id="accText">-</span></div>
+    <div class="row"><span>آخرین ارسال</span><span class="val" id="timeText">-</span></div>
+    <div class="row"><span>تعداد ارسال</span><span class="val" id="countText">0</span></div>
+  </div>
+
+  <div class="badge">Delivery Tracker v1.0</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const startBtn  = $('startBtn');
+  const stopBtn   = $('stopBtn');
+  const installBtn = $('installBtn');
+  const nameInput = $('driverName');
+  const dot       = $('dot');
+  const stateText = $('stateText');
+  const accText   = $('accText');
+  const timeText  = $('timeText');
+  const countText = $('countText');
+
+  let watchId = null;
+  let lastSend = 0;
+  let sendCount = 0;
+  const SEND_INTERVAL = 4000;
+
+  // اسم رو ذخیره کن
+  nameInput.value = localStorage.getItem('driverName') || '';
+  nameInput.addEventListener('input', () => {
+    localStorage.setItem('driverName', nameInput.value.trim());
+  });
+
+  function setState(text, on = false) {
+    stateText.textContent = text;
+    dot.classList.toggle('on', on);
+  }
+
+  async function sendLocation(pos) {
+    const now = Date.now();
+    if (now - lastSend < SEND_INTERVAL) return;
+    lastSend = now;
+
+    const body = {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      acc: Math.round(pos.coords.accuracy || 0),
+      speed: pos.coords.speed != null ? Math.round(pos.coords.speed * 3.6) : null,
+      driver: nameInput.value.trim() || 'پیک',
+    };
+
+    try {
+      const res = await fetch('/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('bad status');
+
+      sendCount++;
+      countText.textContent = sendCount;
+      accText.textContent = body.acc + ' متر';
+      timeText.textContent = new Date().toLocaleTimeString('fa-IR');
+      setState('در حال ارسال', true);
+    } catch (e) {
+      setState('خطا در شبکه', false);
+    }
+  }
+
+  function onError(err) {
+    if (err.code === 1) {
+      setState('دسترسی رد شد', false);
+      alert('لطفاً به این صفحه اجازه‌ی دسترسی به موقعیت رو بده');
+    } else if (err.code === 2) {
+      setState('موقعیت در دسترس نیست', false);
+    } else if (err.code === 3) {
+      setState('زمان تمام شد', false);
+    }
+  }
+
+  function start() {
+    if (!navigator.geolocation) {
+      alert('مرورگرت از موقعیت‌یابی پشتیبانی نمی‌کنه');
+      return;
+    }
+    if (!nameInput.value.trim()) {
+      alert('اول اسمت رو بنویس');
+      nameInput.focus();
+      return;
+    }
+    setState('در حال گرفتن موقعیت...', true);
+
+    watchId = navigator.geolocation.watchPosition(
+      sendLocation,
+      onError,
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+    );
+
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'block';
+    nameInput.disabled = true;
+  }
+
+  function stop() {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    setState('متوقف شد', false);
+    startBtn.style.display = 'block';
+    stopBtn.style.display = 'none';
+    nameInput.disabled = false;
+  }
+
+  startBtn.onclick = start;
+  stopBtn.onclick = stop;
+
+  // دکمه‌ی نصب PWA
+  let deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = 'block';
+  });
+
+  installBtn.onclick = async () => {
+    if (!deferredPrompt) {
+      alert('برای نصب:\n• اندروید Chrome: منوی سه‌نقطه → Add to Home screen\n• آیفون Safari: دکمه Share → Add to Home Screen');
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') installBtn.style.display = 'none';
+    deferredPrompt = null;
+  };
+
+  window.addEventListener('appinstalled', () => {
+    installBtn.style.display = 'none';
+  });
+
+  // ثبت Service Worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(console.error);
+    });
+  }
+
+  // هشدار موقع بستن صفحه
+  window.addEventListener('beforeunload', (e) => {
+    if (watchId !== null) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+</script>
+</body>
+</html>

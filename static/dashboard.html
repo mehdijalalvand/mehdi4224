@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>پنل ردیابی پیک</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  html, body { margin: 0; height: 100%; font-family: Tahoma, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  .panel {
+    position: absolute;
+    top: 16px; right: 16px;
+    background: rgba(255,255,255,.96);
+    padding: 18px 22px;
+    border-radius: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.2);
+    z-index: 1000;
+    min-width: 260px;
+    font-size: 15px;
+    line-height: 2;
+  }
+  .panel h3 { margin: 0 0 10px; font-size: 17px; color: #1976d2; }
+  .panel .row { display: flex; justify-content: space-between; gap: 16px; }
+  .panel .val { color: #1976d2; font-weight: bold; }
+  .panel .offline { color: #c62828; font-weight: bold; }
+  .panel .online  { color: #2e7d32; font-weight: bold; }
+  .footer {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    background: rgba(0,0,0,.6);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    z-index: 1000;
+  }
+</style>
+</head>
+<body>
+
+<div class="panel" id="panel">
+  <h3>🛵 ردیابی پیک</h3>
+  <div class="row"><span>وضعیت</span><span id="st" class="offline">در انتظار...</span></div>
+  <div class="row"><span>پیک</span><span id="name" class="val">-</span></div>
+  <div class="row"><span>عرض</span><span id="lat" class="val">-</span></div>
+  <div class="row"><span>طول</span><span id="lng" class="val">-</span></div>
+  <div class="row"><span>دقت</span><span id="acc" class="val">-</span></div>
+  <div class="row"><span>سرعت</span><span id="speed" class="val">-</span></div>
+  <div class="row"><span>آخرین بروزرسانی</span><span id="time" class="val">-</span></div>
+</div>
+
+<div id="map"></div>
+<div class="footer">Delivery Tracker v1.0</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  // نقشه — پیش‌فرض تهران
+  const map = L.map('map').setView([35.6892, 51.3890], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+
+  let marker = null;
+  let circle = null;
+  let firstFix = true;
+
+  const el = {
+    st:    document.getElementById('st'),
+    name:  document.getElementById('name'),
+    lat:   document.getElementById('lat'),
+    lng:   document.getElementById('lng'),
+    acc:   document.getElementById('acc'),
+    speed: document.getElementById('speed'),
+    time:  document.getElementById('time'),
+  };
+
+  function update(data) {
+    if (data.lat == null || data.lng == null) return;
+
+    el.st.textContent = 'آنلاین';
+    el.st.className = 'online';
+    el.name.textContent  = data.driver || '-';
+    el.lat.textContent   = data.lat.toFixed(6);
+    el.lng.textContent   = data.lng.toFixed(6);
+    el.acc.textContent   = (data.acc ?? '-') + ' متر';
+    el.speed.textContent = data.speed != null ? data.speed + ' km/h' : '-';
+    el.time.textContent  = data.time || '-';
+
+    const pos = [data.lat, data.lng];
+
+    if (!marker) {
+      marker = L.marker(pos).addTo(map).bindPopup('پیک اینجاست');
+      circle = L.circle(pos, {
+        radius: data.acc || 20,
+        color: '#1976d2',
+        fillOpacity: 0.15
+      }).addTo(map);
+    } else {
+      marker.setLatLng(pos);
+      circle.setLatLng(pos).setRadius(data.acc || 20);
+    }
+
+    if (firstFix) {
+      map.setView(pos, 16);
+      firstFix = false;
+    } else {
+      map.panTo(pos);
+    }
+  }
+
+  // اتصال WebSocket برای دریافت زنده
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(proto + '://' + location.host + '/ws');
+
+    ws.onmessage = (e) => {
+      try { update(JSON.parse(e.data)); } catch(_) {}
+    };
+    ws.onclose = () => {
+      el.st.textContent = 'قطع شد - تلاش مجدد...';
+      el.st.className = 'offline';
+      setTimeout(connect, 2000);
+    };
+  }
+  connect();
+</script>
+</body>
+</html>
